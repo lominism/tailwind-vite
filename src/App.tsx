@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -8,7 +8,23 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import {
   Table,
@@ -19,9 +35,18 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { students } from "@/lib/students"
+import { type Student } from "@/lib/students"
+import { supabase } from "@/lib/supabase"
 
 type StatusFilter = "all" | "active" | "inactive"
+type StudentStatus = Student["status"]
+
+const emptyForm = {
+  name: "",
+  email: "",
+  phone: "",
+  status: "active" as StudentStatus,
+}
 
 function initials(name: string) {
   return name
@@ -35,9 +60,33 @@ function isStatusFilter(value: unknown): value is StatusFilter {
   return value === "all" || value === "active" || value === "inactive"
 }
 
+function isStudentStatus(value: unknown): value is StudentStatus {
+  return value === "active" || value === "inactive"
+}
+
 export function App() {
   const [query, setQuery] = useState("")
   const [status, setStatus] = useState<StatusFilter>("all")
+  const [students, setStudents] = useState<Student[]>([])
+  const [open, setOpen] = useState(false)
+  const [form, setForm] = useState(emptyForm)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    async function load() {
+      const { data, error } = await supabase
+        .from("students")
+        .select("*")
+        .order("name")
+
+      if (error) {
+        console.error(error)
+        return
+      }
+      setStudents((data as Student[]) ?? [])
+    }
+    load()
+  }, [])
 
   const activeCount = students.filter(
     (student) => student.status === "active"
@@ -51,6 +100,35 @@ export function App() {
       .includes(query.trim().toLowerCase())
     return matchesStatus && matchesName
   })
+
+  async function handleAddStudent(event: React.FormEvent) {
+    event.preventDefault()
+    setSaving(true)
+
+    const { data, error } = await supabase
+      .from("students")
+      .insert({
+        name: form.name.trim(),
+        email: form.email.trim(),
+        phone: form.phone.trim(),
+        status: form.status,
+      })
+      .select()
+      .single()
+
+    setSaving(false)
+
+    if (error) {
+      console.error(error)
+      return
+    }
+
+    setStudents((current) =>
+      [...current, data as Student].sort((a, b) => a.name.localeCompare(b.name))
+    )
+    setForm(emptyForm)
+    setOpen(false)
+  }
 
   return (
     <div className="min-h-svh bg-background p-6">
@@ -116,9 +194,108 @@ export function App() {
             >
               Clear
             </Button>
+            <Button onClick={() => setOpen(true)}>Add</Button>
           </div>
         </div>
         {/* end of div for filter and search row */}
+
+        <Dialog
+          open={open}
+          onOpenChange={(nextOpen) => {
+            setOpen(nextOpen)
+            if (!nextOpen) setForm(emptyForm)
+          }}
+        >
+          <DialogContent>
+            <form onSubmit={handleAddStudent} className="grid gap-6">
+              <DialogHeader>
+                <DialogTitle>Add student</DialogTitle>
+                <DialogDescription>
+                  Enter the student details, then save to add them to the
+                  roster.
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="grid gap-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="name">Name</Label>
+                  <Input
+                    id="name"
+                    value={form.name}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        name: event.target.value,
+                      }))
+                    }
+                    required
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="email">Email</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    value={form.email}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        email: event.target.value,
+                      }))
+                    }
+                    required
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="phone">Phone</Label>
+                  <Input
+                    id="phone"
+                    value={form.phone}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        phone: event.target.value,
+                      }))
+                    }
+                    required
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="status">Status</Label>
+                  <Select
+                    value={form.status}
+                    onValueChange={(value) => {
+                      if (isStudentStatus(value)) {
+                        setForm((current) => ({ ...current, status: value }))
+                      }
+                    }}
+                  >
+                    <SelectTrigger id="status" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="active">active</SelectItem>
+                      <SelectItem value="inactive">inactive</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={saving}>
+                  {saving ? "Saving..." : "Save"}
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
 
         {/* table but no separate div */}
         {visibleStudents.length === 0 ? (
